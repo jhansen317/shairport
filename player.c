@@ -34,6 +34,7 @@
 #include <math.h>
 #include <sys/stat.h>
 #include <sys/signal.h>
+#include <sys/time.h>
 #include <assert.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -47,7 +48,9 @@
 #endif
 
 #include "alac.h"
-
+// vars to store start and end of playback
+time_t playstart, playend;
+FILE *pTfile;
 // parameters from the source
 static unsigned char *aesiv;
 static AES_KEY aes;
@@ -353,13 +356,13 @@ static short *buffer_get_frame(void) {
     buf_fill = seq_diff(ab_read, ab_write);
     if (buf_fill < 1 || !ab_synced) {
         if (buf_fill < 1)
-            warn("underrun.");
+            warn("Underrun.\n");
         ab_buffering = 1;
         pthread_mutex_unlock(&ab_mutex);
         return 0;
     }
     if (buf_fill >= BUFFER_FRAMES) {   // overrunning! uh-oh. restart at a sane distance
-        warn("overrun.");
+        warn("Overrun.\n");
         ab_read = ab_write - config.buffer_start_fill;
     }
     read = ab_read;
@@ -502,6 +505,21 @@ void player_flush(void) {
 }
 
 int player_play(stream_cfg *stream) {
+    char cur_time[80];
+    FILE *last_played;
+    time(&playstart);
+    strfnow(cur_time);
+    print_log(stdout, "Playback Started.\n");
+
+    if (config.lpfile)
+    {
+        last_played = fopen(config.lpfile, "w");
+        if (last_played == NULL)
+            die("Could not open last played file");
+        fprintf(last_played, "LAST_PLAYED=\'%s\'\n", cur_time);
+        fclose(last_played);
+    }
+
     if (config.buffer_start_fill > BUFFER_FRAMES)
         die("specified buffer starting fill %d > buffer size %d",
             config.buffer_start_fill, BUFFER_FRAMES);
@@ -519,11 +537,12 @@ int player_play(stream_cfg *stream) {
     command_start();
     config.output->start(sampling_rate);
     pthread_create(&player_thread, NULL, player_thread_func, NULL);
-
     return 0;
 }
 
 void player_stop(void) {
+    FILE *pTfile;
+    int elapsedHours, elapsedMin, elapsedSec, rawSeconds;
     please_stop = 1;
     pthread_join(player_thread, NULL);
     config.output->stop();
@@ -533,4 +552,21 @@ void player_stop(void) {
 #ifdef FANCY_RESAMPLING
     free_src();
 #endif
+   
+    time(&playend);
+    rawSeconds = (int)difftime(playend, playstart);
+    elapsedHours = rawSeconds/3600;
+    elapsedMin = (rawSeconds/60)%60;
+    elapsedSec = (rawSeconds)%60;
+
+    if (config.timefile)
+    {
+	    pTfile = fopen(config.timefile, "w");
+        if (pTfile == NULL)
+    	    die("Could not open timefile");
+        fprintf(pTfile, "TOTAL=%d\n", rawSeconds);
+        fclose(pTfile); 
+    }
+    print_log(stdout, "Playback Stopped. Total playing time %02d:%02d:%02d\n", elapsedHours, elapsedMin, elapsedSec);
+
 }

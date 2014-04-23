@@ -28,14 +28,18 @@ typedef struct {
     mdns_backend *mdns;
     int buffer_start_fill;
     int daemonise;
-    char *cmd_start, *cmd_stop;
     int cmd_blocking;
+    char *cmd_start, *cmd_stop;
     char *pidfile;
     char *logfile;
     char *errfile;
+    char *timefile;
+    char *lpfile;
 } shairport_cfg;
 
 extern int debuglev;
+void strfnow(char *timestring);
+void print_log(FILE *fp, char *format, ...);
 void die(char *format, ...);
 void warn(char *format, ...);
 void debug(int level, char *format, ...);
@@ -47,10 +51,10 @@ char *base64_enc(uint8_t *input, int length);
 #define RSA_MODE_KEY  (1)
 uint8_t *rsa_apply(uint8_t *input, int inlen, int *outlen, int mode);
 
+extern shairport_cfg config;
+
 void command_start(void);
 void command_stop(void);
-
-extern shairport_cfg config;
 
 void shairport_shutdown(int retval);
 void shairport_startup_complete(void);

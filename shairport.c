@@ -46,7 +46,7 @@ void shairport_shutdown(int retval) {
     if (shutting_down)
         return;
     shutting_down = 1;
-    printf("Shutting down...\n");
+    print_log(stdout, "Shutting down...\n");
     mdns_unregister();
     rtsp_shutdown_stream();
     if (config.output)
@@ -100,6 +100,8 @@ void usage(char *progname) {
     printf("    -e, --error=FILE    redirect shairport's standard error output to FILE\n");
     printf("    -B, --on-start=COMMAND  run a shell command when playback begins\n");
     printf("    -E, --on-stop=COMMAND   run a shell command when playback ends\n");
+    printf("    -t, --time=FILE         write playback totals to FILE\n");
+    printf("    -r, --last_played=FILE  print date/time of last playback to FILE\n");
     printf("    -w, --wait-cmd          block while the shell command(s) run\n");
 
     printf("    -o, --output=BACKEND    select audio output method\n");
@@ -126,6 +128,8 @@ int parse_options(int argc, char **argv) {
         {"port",    required_argument,  NULL, 'p'},
         {"name",    required_argument,  NULL, 'a'},
         {"password",required_argument,  NULL, 'k'},
+        {"time",    required_argument,  NULL, 't'},
+        {"last_played", required_argument, NULL, 'r'},
         {"output",  required_argument,  NULL, 'o'},
         {"on-start",required_argument,  NULL, 'B'},
         {"on-stop", required_argument,  NULL, 'E'},
@@ -136,7 +140,7 @@ int parse_options(int argc, char **argv) {
 
     int opt;
     while ((opt = getopt_long(argc, argv,
-                              "+hdvP:l:e:p:a:k:o:b:B:E:wm:",
+                              "+hdvP:l:e:p:a:k:t:r:o:b:B:E:wm:",
                               long_options, NULL)) > 0) {
         switch (opt) {
             default:
@@ -161,6 +165,12 @@ int parse_options(int argc, char **argv) {
             case 'k':
                 config.password = optarg;
                 break;
+	    case 't':
+		config.timefile = optarg;
+		break;
+	    case 'r':
+		config.lpfile = optarg;
+ 	        break;
             case 'b':
                 config.buffer_start_fill = atoi(optarg);
                 break;

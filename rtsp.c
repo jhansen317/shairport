@@ -168,7 +168,7 @@ static rtsp_message * msg_init(void) {
 
 static int msg_add_header(rtsp_message *msg, char *name, char *value) {
     if (msg->nheaders >= sizeof(msg->name)/sizeof(char*)) {
-        warn("too many headers?!");
+        warn("too many headers?!\n");
         return 1;
     }
 
@@ -231,7 +231,7 @@ static int msg_handle_line(rtsp_message **pmsg, char *line) {
         char *p;
         p = strstr(line, ": ");
         if (!p) {
-            warn("bad header: >>%s<<", line);
+            warn("bad header: >>%s<<\n", line);
             goto fail;
         }
         *p = 0;
@@ -286,7 +286,7 @@ static rtsp_message * rtsp_read_request(int fd) {
             msg_size = msg_handle_line(&msg, buf);
 
             if (!msg) {
-                warn("no RTSP header received");
+                warn("no RTSP header received\n");
                 goto shutdown;
             }
 
@@ -299,7 +299,7 @@ static rtsp_message * rtsp_read_request(int fd) {
     if (msg_size > buflen) {
         buf = realloc(buf, msg_size);
         if (!buf) {
-            warn("too much content");
+            warn("too much content\n");
             goto shutdown;
         }
         buflen = msg_size;
@@ -339,7 +339,7 @@ static void msg_write_response(int fd, rtsp_message *resp) {
     n = snprintf(p, pktfree,
                  "RTSP/1.0 %d %s\r\n", resp->respcode,
                  resp->respcode==200 ? "OK" : "Error");
-    debug(1, "sending response: %s", pkt);
+    debug(1, "sending response: %s\n", pkt);
     pktfree -= n;
     p += n;
 
@@ -485,7 +485,7 @@ static void handle_announce(rtsp_conn_info *conn,
     int len, keylen;
     uint8_t *aesiv = base64_dec(paesiv, &len);
     if (len != 16) {
-        warn("client announced aeskey of %d bytes, wanted 16", len);
+        warn("client announced aeskey of %d bytes, wanted 16\n", len);
         free(aesiv);
         return;
     }
@@ -496,7 +496,7 @@ static void handle_announce(rtsp_conn_info *conn,
     uint8_t *aeskey = rsa_apply(rsaaeskey, len, &keylen, RSA_MODE_KEY);
     free(rsaaeskey);
     if (keylen != 16) {
-        warn("client announced rsaaeskey of %d bytes, wanted 16", keylen);
+        warn("client announced rsaaeskey of %d bytes, wanted 16\n", keylen);
         free(aeskey);
         return;
     }
@@ -543,7 +543,7 @@ static void apple_challenge(int fd, rtsp_message *req, rtsp_message *resp) {
     memset(buf, 0, sizeof(buf));
 
     if (chall_len > 16) {
-        warn("oversized Apple-Challenge!");
+        warn("oversized Apple-Challenge!\n");
         free(chall);
         return;
     }
@@ -818,7 +818,7 @@ void rtsp_listen_loop(void) {
 
     mdns_register();
 
-    printf("Listening for connections.\n");
+    print_log(stdout, "Listening for connections.\n");
     shairport_startup_complete();
 
     int acceptfd;

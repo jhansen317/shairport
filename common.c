@@ -33,12 +33,41 @@
 #include <openssl/evp.h>
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
+#include <sys/time.h>
 #include "common.h"
 #include "daemon.h"
 
 shairport_cfg config;
 
 int debuglev = 0;
+
+inline void strfnow(char *timestring)
+{
+    time_t now;
+    struct tm *timeinfo;
+    time(&now);
+    timeinfo = gmtime(&now);
+    strftime(timestring, 80, "%F %T", timeinfo);
+    return;
+}
+
+
+void print_log(FILE *fp, char *format, ...)
+{
+    char buffer[4096];
+    char timestring[80];
+    va_list args;
+
+    buffer[sizeof(buffer)-1] = '\0';
+
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer)-1, format, args);
+    va_end(args);
+
+    strfnow(timestring);
+
+    fprintf(fp, "%s - %s", timestring, buffer);
+}
 
 void die(char *format, ...) {
     fprintf(stderr, "FATAL: ");
@@ -57,21 +86,27 @@ void die(char *format, ...) {
 }
 
 void warn(char *format, ...) {
-    fprintf(stderr, "WARNING: ");
+    char buffer[4096];
+    buffer[sizeof(buffer)-1] = '\0';
     va_list args;
     va_start(args, format);
-    vfprintf(stderr, format, args);
+    vsnprintf(buffer, sizeof(buffer)-1, format, args);
     va_end(args);
-    fprintf(stderr, "\n");
+    print_log(stderr, "WARNING: %s", buffer);
 }
 
 void debug(int level, char *format, ...) {
-    if (level > debuglev)
-        return;
+    if(level > debuglev)
+    {
+  	return;
+    }
+    char buffer[4096];
+    buffer[sizeof(buffer)-1] = '\0';
     va_list args;
     va_start(args, format);
-    vfprintf(stderr, format, args);
+    vsnprintf(buffer, sizeof(buffer)-1, format, args);
     va_end(args);
+    print_log(stderr, buffer);
 }
 
 
@@ -173,7 +208,6 @@ uint8_t *rsa_apply(uint8_t *input, int inlen, int *outlen, int mode) {
     }
     return out;
 }
-
 void command_start(void) {
     if (!config.cmd_start)
         return;
@@ -182,7 +216,7 @@ void command_start(void) {
 
     debug(1, "running start command: %s", config.cmd_start);
     if (system(config.cmd_start))
-        warn("exec of external start command failed");
+        warn("exec of external start command failed\n");
 
     if (!config.cmd_blocking)
         exit(0);
@@ -196,8 +230,9 @@ void command_stop(void) {
 
     debug(1, "running stop command: %s", config.cmd_stop);
     if (system(config.cmd_stop))
-        warn("exec of external stop command failed");
+        warn("exec of external stop command failed\n");
 
     if (!config.cmd_blocking)
         exit(0);
 }
+
