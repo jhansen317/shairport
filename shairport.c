@@ -87,7 +87,7 @@ void usage(char *progname) {
     printf("    -h, --help          show this help\n");
     printf("    -p, --port=PORT     set RTSP listening port\n");
     printf("    -a, --name=NAME     set advertised name\n");
-    printf("    -k, --password=PW   require password to stream audio\n");
+	printf("    -k, --password=PW   require password to stream audio\n");
     printf("    -b FILL             set how full the buffer must be before audio output\n");
     printf("                        starts. This value is in frames; default %d\n", config.buffer_start_fill);
     printf("    -d, --daemon        fork (daemonise). The PID of the child process is\n");
@@ -100,12 +100,10 @@ void usage(char *progname) {
     printf("    -e, --error=FILE    redirect shairport's standard error output to FILE\n");
     printf("    -B, --on-start=COMMAND  run a shell command when playback begins\n");
     printf("    -E, --on-stop=COMMAND   run a shell command when playback ends\n");
-    printf("    -t, --time=FILE         write playback totals to FILE\n");
-    printf("    -r, --last_played=FILE  print date/time of last playback to FILE\n");
-    printf("    -w, --wait-cmd          block while the shell command(s) run\n");
-
+    printf("    -t, --time=FILE     write playback totals to FILE\n ");
+    printf("    -r, --last_played=FILE print date/time of last playback to FILE\n");
     printf("    -o, --output=BACKEND    select audio output method\n");
-    printf("    -m, --mdns=BACKEND      force the use of BACKEND to advertise the service\n");
+    printf("    -m, --mdns=BACKEND      force the use of BACKEND to advertize the service\n");
     printf("                            if no mdns provider is specified,\n");
     printf("                            shairport tries them all until one works.\n");
 
@@ -127,20 +125,19 @@ int parse_options(int argc, char **argv) {
         {"error",   required_argument,  NULL, 'e'},
         {"port",    required_argument,  NULL, 'p'},
         {"name",    required_argument,  NULL, 'a'},
-        {"password",required_argument,  NULL, 'k'},
-        {"time",    required_argument,  NULL, 't'},
-        {"last_played", required_argument, NULL, 'r'},
+		{"password",required_argument,  NULL, 'k'},
         {"output",  required_argument,  NULL, 'o'},
         {"on-start",required_argument,  NULL, 'B'},
         {"on-stop", required_argument,  NULL, 'E'},
-        {"wait-cmd",no_argument,        NULL, 'w'},
+        {"time",    required_argument,  NULL, 't'},
+  	    {"last_played", required_argument, NULL, 'r'},
         {"mdns",    required_argument,  NULL, 'm'},
         {NULL, 0, NULL, 0}
     };
 
     int opt;
     while ((opt = getopt_long(argc, argv,
-                              "+hdvP:l:e:p:a:k:t:r:o:b:B:E:wm:",
+                              "+hdvP:l:e:p:a:k:o:b:B:E:t:r:m:",
                               long_options, NULL)) > 0) {
         switch (opt) {
             default:
@@ -165,13 +162,7 @@ int parse_options(int argc, char **argv) {
             case 'k':
                 config.password = optarg;
                 break;
-	    case 't':
-		config.timefile = optarg;
-		break;
-	    case 'r':
-		config.lpfile = optarg;
- 	        break;
-            case 'b':
+			case 'b':
                 config.buffer_start_fill = atoi(optarg);
                 break;
             case 'B':
@@ -180,9 +171,12 @@ int parse_options(int argc, char **argv) {
             case 'E':
                 config.cmd_stop = optarg;
                 break;
-            case 'w':
-                config.cmd_blocking = 1;
-                break;
+     	    case 't':
+	        	config.timefile = optarg;
+	        	break;
+	        case 'r':
+		        config.lpfile = optarg;
+	 	        break;
             case 'P':
                 config.pidfile = optarg;
                 break;
@@ -267,6 +261,7 @@ void log_setup() {
         dup2(err_fd, STDERR_FILENO);
         setvbuf (stderr, NULL, _IOLBF, BUFSIZ);
     }
+
 }
 
 int main(int argc, char **argv) {
