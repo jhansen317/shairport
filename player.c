@@ -34,7 +34,6 @@
 #include <math.h>
 #include <sys/stat.h>
 #include <sys/signal.h>
-#include <sys/time.h>
 #include <assert.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -48,9 +47,11 @@
 #endif
 
 #include "alac.h"
+
 // vars to store start and end of playback
 time_t playstart, playend;
 FILE *pTfile;
+
 // parameters from the source
 static unsigned char *aesiv;
 static AES_KEY aes;
@@ -78,7 +79,7 @@ static pthread_mutex_t vol_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // default buffer size
 // needs to be a power of 2 because of the way BUFIDX(seqno) works
-#define BUFFER_FRAMES  512
+#define BUFFER_FRAMES  1024
 #define MAX_PACKET      2048
 
 typedef struct audio_buffer_entry {   // decoded audio packets
@@ -101,6 +102,17 @@ static void ab_resync(void) {
         audio_buffer[i].ready = 0;
     ab_synced = 0;
     ab_buffering = 1;
+}
+
+// reset the audio frames in the range to NOT ready
+static void ab_reset(seq_t from, seq_t to) {
+    abuf_t *abuf = 0;
+
+    while (seq_diff(from, to)) {
+	abuf = audio_buffer + BUFIDX(from);
+	abuf->ready = 0;
+	from++;
+    }
 }
 
 // the sequence numbers will wrap pretty often.
@@ -191,13 +203,30 @@ static void free_buffer(void) {
         free(audio_buffer[i].data);
 }
 
+    //  Calculate the boundary threshold for resends dependant on buffer size
+    //  FOCUS_BOUNDARY is the preferred threshold if this can be accomodated
+    //  Resends are typically handled as a result of advance packets
+    //  However below the boundary resends are also handled in Last-Chance algorithm
+
+#define FOCUS_BOUNDARY 1024
+
+
+static int resend_focus(int fill){
+    if ((fill > FOCUS_BOUNDARY) &&
+        ((fill/2) < FOCUS_BOUNDARY)) {
+	return FOCUS_BOUNDARY;
+    } else {
+	return (fill/2);
+    }
+}
+
 void player_put_packet(seq_t seqno, uint8_t *data, int len) {
     abuf_t *abuf = 0;
     int16_t buf_fill;
 
     pthread_mutex_lock(&ab_mutex);
     if (!ab_synced) {
-        debug(2, "syncing to first seqno %04X\n", seqno);
+        debug(1, "syncing to first seqno %04X\n", seqno);
         ab_write = seqno-1;
         ab_read = seqno;
         ab_synced = 1;
@@ -206,13 +235,32 @@ void player_put_packet(seq_t seqno, uint8_t *data, int len) {
         abuf = audio_buffer + BUFIDX(seqno);
         ab_write = seqno;
     } else if (seq_order(ab_write, seqno)) {    // newer than expected
-        rtp_request_resend(ab_write+1, seqno-1);
-        abuf = audio_buffer + BUFIDX(seqno);
-        ab_write = seqno;
+	// Be careful with new packets that are in advance
+	// Those more than a buffer size in advance will cause an Overrun
+	// When buffering the valid threshold should be the buffer fill target itself which should re-sync
+	if (ab_buffering && (seq_diff(ab_read, seqno) > config.buffer_start_fill)) {
+	   warn("out of range re-sync %04X (%04X:%04X)\n", seqno, ab_read, ab_write);
+	   ab_resync();
+	   ab_synced = 1;
+	   ab_read = seqno;
+	   ab_write = seqno;
+           abuf = audio_buffer + BUFIDX(seqno);
+	} else {
+           debug(1, "advance packet %04X (%04X:%04X)\n", seqno, ab_read, ab_write);
+
+           rtp_request_resend(ab_write+1, seqno-1);
+
+           abuf = audio_buffer + BUFIDX(seqno);
+           ab_write = seqno;
+	}
     } else if (seq_order(ab_read, seqno)) {     // late but not yet played
         abuf = audio_buffer + BUFIDX(seqno);
+	if (abuf->ready) {			// discard this frame if frame previously received
+	   abuf =0;
+           debug(1, "duplicate packet %04X (%04X:%04X)\n", seqno, ab_read, ab_write);
+	}
     } else {    // too late.
-        debug(1, "late packet %04X (%04X:%04X)", seqno, ab_read, ab_write);
+        debug(1, "late packet %04X (%04X:%04X)\n", seqno, ab_read, ab_write);
     }
     buf_fill = seq_diff(ab_read, ab_write);
     pthread_mutex_unlock(&ab_mutex);
@@ -224,9 +272,8 @@ void player_put_packet(seq_t seqno, uint8_t *data, int len) {
 
     pthread_mutex_lock(&ab_mutex);
     if (ab_buffering && buf_fill >= config.buffer_start_fill) {
-        debug(1, "buffering over. starting play\n");
+        debug(1, "buffering over. starting play (%04X:%04X)\n", ab_read, ab_write);
         ab_buffering = 0;
-        bf_est_reset(buf_fill);
     }
     pthread_mutex_unlock(&ab_mutex);
 }
@@ -318,9 +365,10 @@ static void bf_est_update(short fill) {
         return;
     } else if (fill_count == 1000) {
         // this information could be used to help estimate our effective latency?
+	desired_fill = (2*config.buffer_start_fill) - desired_fill;
         debug(1, "established desired fill of %f frames, "
               "so output chain buffered about %f frames\n", desired_fill,
-              config.buffer_start_fill - desired_fill);
+              desired_fill - config.buffer_start_fill);
         fill_count++;
     }
 
@@ -356,35 +404,38 @@ static short *buffer_get_frame(void) {
     buf_fill = seq_diff(ab_read, ab_write);
     if (buf_fill < 1 || !ab_synced) {
         if (buf_fill < 1)
-            warn("Underrun.\n");
-        ab_buffering = 1;
+            warn("underrun %i (%04X:%04X)\n", buf_fill, ab_read, ab_write);
+	ab_resync();
         pthread_mutex_unlock(&ab_mutex);
         return 0;
     }
     if (buf_fill >= BUFFER_FRAMES) {   // overrunning! uh-oh. restart at a sane distance
-        warn("Overrun.\n");
+        warn("overrun %i (%04X:%04X)\n", buf_fill, ab_read, ab_write);
+	read = ab_read;
         ab_read = ab_write - config.buffer_start_fill;
+	ab_reset((ab_write + 1 - BUFFER_FRAMES), ab_read);	// reset any ready frames in those we've skipped (avoiding wrap around)
     }
     read = ab_read;
     ab_read++;
     buf_fill = seq_diff(ab_read, ab_write);
     bf_est_update(buf_fill);
 
-    // check if t+16, t+32, t+64, t+128, ... (buffer_start_fill / 2)
+    // check if t+16, t+32, t+64, t+128, ... resend focus boundary
     // packets have arrived... last-chance resend
     if (!ab_buffering) {
-        for (i = 16; i < (config.buffer_start_fill / 2); i = (i * 2)) {
+        for (i = 16; i <= resend_focus(config.buffer_start_fill); i = (i * 2)) {
             next = ab_read + i;
             abuf = audio_buffer + BUFIDX(next);
-            if (!abuf->ready) {
+            if ((!abuf->ready) && (next < ab_write)){
                 rtp_request_resend(next, next);
+                debug(1, "last chance resend T+%i, %04X (%04X:%04X)\n", i, next, ab_read, ab_write);
             }
         }
     }
 
     abuf_t *curframe = audio_buffer + BUFIDX(read);
     if (!curframe->ready) {
-        debug(1, "missing frame %04X.", read);
+        debug(1, "missing frame %04X\n", read);
         memset(curframe->data, 0, FRAME_BYTES(frame_size));
     }
     curframe->ready = 0;
@@ -532,11 +583,13 @@ int player_play(stream_cfg *stream) {
 #ifdef FANCY_RESAMPLING
     init_src();
 #endif
+    bf_est_reset(config.buffer_start_fill);		// initialise frame matching algorithm - only once per read thread (semaphore not required at this point)
 
     please_stop = 0;
     command_start();
     config.output->start(sampling_rate);
     pthread_create(&player_thread, NULL, player_thread_func, NULL);
+
     return 0;
 }
 
@@ -552,7 +605,6 @@ void player_stop(void) {
 #ifdef FANCY_RESAMPLING
     free_src();
 #endif
-   
     time(&playend);
     rawSeconds = (int)difftime(playend, playstart);
     elapsedHours = rawSeconds/3600;
@@ -561,9 +613,9 @@ void player_stop(void) {
 
     if (config.timefile)
     {
-	    pTfile = fopen(config.timefile, "w");
+            pTfile = fopen(config.timefile, "w");
         if (pTfile == NULL)
-    	    die("Could not open timefile");
+            die("Could not open timefile");
         fprintf(pTfile, "TOTAL=%d\n", rawSeconds);
         fclose(pTfile); 
     }

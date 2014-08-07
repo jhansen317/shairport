@@ -36,12 +36,11 @@ static int fd = -1;
 char *pipename = NULL;
 
 static void start(int sample_rate) {
-    //fd = open(pipename, O_WRONLY);
-    //if (fd < 0) {
-    //    perror("open");
-    //    die("could not open specified pipe for writing");
-    //}
-    print_log(stdout, "Starting to write to the pipe.\n");
+    fd = open(pipename, O_WRONLY);
+    if (fd < 0) {
+        perror("open");
+        die("could not open specified pipe for writing");
+    }
 }
 
 static void play(short buf[], int samples) {
@@ -49,8 +48,7 @@ static void play(short buf[], int samples) {
 }
 
 static void stop(void) {
-    //close(fd);
-    print_log(stdout, "Stopped writing to pipe.\n");
+    close(fd);
 }
 
 static int init(int argc, char **argv) {
@@ -59,16 +57,9 @@ static int init(int argc, char **argv) {
 
     pipename = strdup(argv[0]);
 
-    fd = open(pipename, O_WRONLY);
-    if (fd < 0) {
-        perror("open");
-        die("could not open specified pipe for writing");
-    }
-    print_log(stdout, "Opened pipe OK!\n");
-
     // test open pipe so we error on startup if it's going to fail
-    //start(44100);
-    //stop();
+    start(44100);
+    stop();
 
     return 0;
 }

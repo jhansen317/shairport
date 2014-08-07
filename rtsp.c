@@ -45,6 +45,7 @@
 #include "player.h"
 #include "rtp.h"
 #include "mdns.h"
+//#include "wiringPi.h"
 
 #ifdef AF_INET6
 #define INETx_ADDRSTRLEN INET6_ADDRSTRLEN
@@ -168,7 +169,7 @@ static rtsp_message * msg_init(void) {
 
 static int msg_add_header(rtsp_message *msg, char *name, char *value) {
     if (msg->nheaders >= sizeof(msg->name)/sizeof(char*)) {
-        warn("too many headers?!\n");
+        warn("too many headers?!");
         return 1;
     }
 
@@ -231,7 +232,7 @@ static int msg_handle_line(rtsp_message **pmsg, char *line) {
         char *p;
         p = strstr(line, ": ");
         if (!p) {
-            warn("bad header: >>%s<<\n", line);
+            warn("bad header: >>%s<<", line);
             goto fail;
         }
         *p = 0;
@@ -286,7 +287,7 @@ static rtsp_message * rtsp_read_request(int fd) {
             msg_size = msg_handle_line(&msg, buf);
 
             if (!msg) {
-                warn("no RTSP header received\n");
+                warn("no RTSP header received");
                 goto shutdown;
             }
 
@@ -299,7 +300,7 @@ static rtsp_message * rtsp_read_request(int fd) {
     if (msg_size > buflen) {
         buf = realloc(buf, msg_size);
         if (!buf) {
-            warn("too much content\n");
+            warn("too much content");
             goto shutdown;
         }
         buflen = msg_size;
@@ -339,7 +340,7 @@ static void msg_write_response(int fd, rtsp_message *resp) {
     n = snprintf(p, pktfree,
                  "RTSP/1.0 %d %s\r\n", resp->respcode,
                  resp->respcode==200 ? "OK" : "Error");
-    debug(1, "sending response: %s\n", pkt);
+    debug(1, "sending response: %s", pkt);
     pktfree -= n;
     p += n;
 
@@ -372,6 +373,7 @@ static void handle_teardown(rtsp_conn_info *conn,
                             rtsp_message *req, rtsp_message *resp) {
     if (!rtsp_playing())
         return;
+    //digitalWrite(11, 1);	/* On TearDown:	Turn Ampliefier OFF - enable sleep */
     resp->respcode = 200;
     msg_add_header(resp, "Connection", "close");
     please_shutdown = 1;
@@ -409,6 +411,7 @@ static void handle_setup(rtsp_conn_info *conn,
     int sport = rtp_setup(&conn->remote, cport, tport);
     if (!sport)
         return;
+    //digitalWrite(11, 0);	/* On Set-up:	Turn Amplifier ON - disable sleep */
 
     player_play(&conn->stream);
 
@@ -485,7 +488,7 @@ static void handle_announce(rtsp_conn_info *conn,
     int len, keylen;
     uint8_t *aesiv = base64_dec(paesiv, &len);
     if (len != 16) {
-        warn("client announced aeskey of %d bytes, wanted 16\n", len);
+        warn("client announced aeskey of %d bytes, wanted 16", len);
         free(aesiv);
         return;
     }
@@ -496,7 +499,7 @@ static void handle_announce(rtsp_conn_info *conn,
     uint8_t *aeskey = rsa_apply(rsaaeskey, len, &keylen, RSA_MODE_KEY);
     free(rsaaeskey);
     if (keylen != 16) {
-        warn("client announced rsaaeskey of %d bytes, wanted 16\n", keylen);
+        warn("client announced rsaaeskey of %d bytes, wanted 16", keylen);
         free(aeskey);
         return;
     }
@@ -543,7 +546,7 @@ static void apple_challenge(int fd, rtsp_message *req, rtsp_message *resp) {
     memset(buf, 0, sizeof(buf));
 
     if (chall_len > 16) {
-        warn("oversized Apple-Challenge!\n");
+        warn("oversized Apple-Challenge!");
         free(chall);
         return;
     }
@@ -816,9 +819,13 @@ void rtsp_listen_loop(void) {
             maxfd = sockfd[i];
     }
 
+    //wiringPiSetupPhys();	/* Listen Loop: Initilise the GPIO access - use physical pin numbers */
+    //pinMode(11, OUTPUT);	/* let's use Pin 11 */
+    //digitalWrite(11, 1);	/* turn Amplifier Sleep mode ON */
+
     mdns_register();
 
-    print_log(stdout, "Listening for connections.\n");
+    printf("Listening for connections.\n");
     shairport_startup_complete();
 
     int acceptfd;
