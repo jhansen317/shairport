@@ -93,9 +93,11 @@ static void client_callback(AvahiClient *c,
             break;
 
         case AVAHI_CLIENT_FAILURE:
-        case AVAHI_CLIENT_S_COLLISION:
             die("avahi client failure");
-
+        case AVAHI_CLIENT_S_COLLISION:
+			print_log(stderr, "Avahi state is AVAHI_CLIENT_S_COLLISION...would have killed the service...\n");
+			register_service(c);
+			break;
         case AVAHI_CLIENT_CONNECTING:
             break;
     }

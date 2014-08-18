@@ -73,7 +73,7 @@ check_header  getopt.h      CONFIG_HAVE_GETOPT_H
 
 # Don't build dns_sd backend if we have avahi
 if [ -z "$CONFIG_AVAHI" ]; then
-    check_header  dns_sd.h      CONFIG_HAVE_DNS_SD_H
+check_header  dns_sd.h      CONFIG_HAVE_DNS_SD_H
 fi
 
 
