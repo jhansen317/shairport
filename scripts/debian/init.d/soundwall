@@ -1,0 +1,147 @@
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides: shairport
+# Required-Start: $remote_fs $networking $all
+# Required-Stop: $remote_fs $networking
+# Should-Start: pulseaudio alsa-utils hostname avahi
+# Should-Stop: pulseaudio alsa-utils hostname avahi
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+### END INIT INFO
+
+# Do not modify this file. Edit /etc/default/shairport instead !
+
+
+DESC="Soundwall Airtunes emulator"
+NAME=soundwall
+DAEMON=/soundwall/bin/soundwall
+
+# Configuration defaults
+USER=root
+GROUP=nogroup
+PIDFILE=/var/run/$NAME.pid
+
+PASSFILE=/soundwall/etc/password
+if [ -s $PASSFILE ] ; then
+    PASSWORD=`cat /soundwall/etc/password`
+fi
+
+NICE=0
+
+if [ -f /etc/default/soundwall ] ; then
+    . /etc/default/soundwall
+fi
+
+if [ -s /soundwall/etc/streaming_mode ] ; then
+    . /soundwall/etc/streaming_mode
+fi
+
+DAEMON_ARGS="--pidfile $PIDFILE --log $LOGFILE"
+
+[ -z "$ERRFILE" ] || DAEMON_ARGS="$DAEMON_ARGS --error $ERRFILE"
+[ -z "$PLAYBACK_TIME_FILE" ] || DAEMON_ARGS="$DAEMON_ARGS --time $PLAYBACK_TIME_FILE"
+[ -z "$LAST_PLAYED_FILE" ] || DAEMON_ARGS="$DAEMON_ARGS --last_played $LAST_PLAYED_FILE"
+[ -z "$BUFFER_FILL" ] || DAEMON_ARGS="$DAEMON_ARGS -b $BUFFER_FILL"
+
+
+# Exit if the package is not installed
+[ -x "$DAEMON" ] || { echo "$NAME is not installed" >&2 ; exit 1; }
+
+# Load the VERBOSE setting and other rcS variables
+. /lib/init/vars.sh
+
+# Define LSB log_* functions.
+# Depend on lsb-base (>= 3.2-14) to ensure that this file is present
+# and status_of_proc is working.
+. /lib/lsb/init-functions
+
+
+do_start()
+{
+    if [ $STREAMING_MODE != "android" ] && [ $STREAMING_MODE != "squeezelite" ] ; then
+
+        # Let the daemon write to the pid/log/error files
+        touch $PIDFILE $LOGFILE $ERRFILE $PLAYBACK_TIME_FILE $LAST_PLAYED_FILE
+        chown root:$GROUP $PIDFILE $LOGFILE $ERRFILE $PLAYBACK_TIME_FILE $LAST_PLAYED_FILE
+        chmod 666 $PIDFILE $LOGFILE $ERRFILE $PLAYBACK_TIME_FILE $LAST_PLAYED_FILE
+	# Garbage below is to handle names or passwords with spaces. start-ston-daemon 
+	# treats args with spaces in a really bizarre way. Concatting AP_NAME or PASSWORD
+	# vars to DAEMON_ARGS results in brokenness so we have to write them literally
+	if [ -z "$PASSWORD" ] ; then
+            start-stop-daemon --start --quiet \
+                --pidfile $PIDFILE \
+                --exec $DAEMON \
+                --chuid $USER:$GROUP \
+                --nicelevel $NICE \
+                -- --daemon --name "$AP_NAME" $DAEMON_ARGS
+        else
+	    start-stop-daemon --start --quiet \
+                --pidfile $PIDFILE \
+                --exec $DAEMON \
+                --chuid $USER:$GROUP \
+                --nicelevel $NICE \
+                -- --daemon --name "$AP_NAME" --password "$PASSWORD" $DAEMON_ARGS
+	fi
+    else 
+        log "Airplay streaming is currently disabled - streaming mode is $STREAMING_MODE" >> /var/log/soundwall/sw-mon.log
+        echo "Airplay is curently disabled! It can be enabled on setup.soundwall.co"
+    fi
+}
+
+do_stop()
+{
+    start-stop-daemon --stop --quiet \
+        --pidfile $PIDFILE \
+        --exec $DAEMON \
+        --name $NAME \
+        --retry=TERM/10/KILL/5
+}
+
+do_reload()
+{
+    [ -f $PIDFILE ] && kill -HUP $(cat $PIDFILE) || return 1
+}
+
+case "$1" in
+    start)
+        log_daemon_msg "Starting $DESC" "$NAME"
+        do_start
+        log_end_msg $?
+    ;;
+    stop)
+        log_daemon_msg "Stopping $DESC" "$NAME"
+        do_stop
+        log_end_msg $?
+    ;;
+    reload)
+        log_daemon_msg "Reloading $DESC" "$NAME"
+        do_reload
+        log_end_msg $?
+    ;;
+     status)
+        status_of_proc "$DAEMON" "$NAME" && exit 0 || exit $?
+    ;;
+    restart|force-reload)
+        log_daemon_msg "Restarting $DESC" "$NAME"
+        do_stop
+        case "$?" in
+         0|1)
+                do_start
+                case "$?" in
+                        0) log_end_msg 0 ;;
+                        1) log_end_msg 1 ;; # Old process is still running
+                        *) log_end_msg 1 ;; # Failed to start
+                esac
+                ;;
+         *)
+                # Failed to stop
+                log_end_msg 1
+                ;;
+        esac
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|status|restart|force-reload}" >&2
+        exit 3
+        ;;
+esac
+
